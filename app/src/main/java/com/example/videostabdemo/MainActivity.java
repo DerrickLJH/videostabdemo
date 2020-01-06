@@ -9,6 +9,7 @@ import androidx.core.content.PermissionChecker;
 import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Build;
@@ -16,7 +17,9 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.util.Log;
 import android.view.View;
+import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.ImageView;
 import android.widget.MediaController;
 import android.widget.Toast;
 import android.widget.VideoView;
@@ -24,42 +27,31 @@ import android.widget.VideoView;
 import org.bytedeco.javacpp.indexer.DoubleIndexer;
 import org.bytedeco.javacpp.indexer.FloatIndexer;
 import org.bytedeco.javacpp.indexer.UByteIndexer;
-import org.bytedeco.javacpp.opencv_core;
-import org.bytedeco.javacpp.opencv_videoio;
-import org.bytedeco.javacpp.opencv_core.Mat;
 import org.bytedeco.javacv.FFmpegFrameGrabber;
 import org.bytedeco.javacv.FFmpegFrameRecorder;
 import org.bytedeco.javacv.Frame;
 import org.bytedeco.javacv.FrameConverter;
 import org.bytedeco.javacv.FrameGrabber;
 import org.bytedeco.javacv.OpenCVFrameConverter;
+import org.bytedeco.opencv.opencv_core.Mat;
+import org.opencv.android.Utils;
+import org.opencv.core.CvType;
 
 import java.io.File;
 import java.lang.reflect.Array;
 import java.util.Arrays;
 
-import static org.bytedeco.javacpp.opencv_calib3d.findHomography;
-import static org.bytedeco.javacpp.opencv_core.CV_64F;
-import static org.bytedeco.javacpp.opencv_core.CV_8UC1;
-import static org.bytedeco.javacpp.opencv_core.gemm;
-import static org.bytedeco.javacpp.opencv_core.invert;
-import static org.bytedeco.javacpp.opencv_core.transpose;
-import static org.bytedeco.javacpp.opencv_imgproc.CV_BGR2GRAY;
-import static org.bytedeco.javacpp.opencv_imgproc.cvtColor;
-import static org.bytedeco.javacpp.opencv_imgproc.filter2D;
-import static org.bytedeco.javacpp.opencv_imgproc.goodFeaturesToTrack;
-import static org.bytedeco.javacpp.opencv_imgproc.warpPerspective;
-import static org.bytedeco.javacpp.opencv_imgproc.getGaussianKernel;
-import static org.bytedeco.javacpp.opencv_video.calcOpticalFlowPyrLK;
 
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = "MainActivity";
     private static final String VIDEO_SAMPLE = "vietnam";
-    private File ffmpeg_link = new File(Environment.getExternalStorageDirectory(), "stabilized.avi");
+    private File ffmpeg_link = new File(Environment.getExternalStorageDirectory(), "stream.mp4");
     private VideoView mVideoView;
+    private ImageView ivResult;
     private MediaController mediaController;
     private Button btnStabilize;
     private FrameGrabber frameGrabber;
+    private FFmpegFrameRecorder stableVideoRecorder;
     private boolean isSuccess = false;
 
     @Override
@@ -68,7 +60,6 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         if (checkPermission()) {
-
         } else {
             ActivityCompat.requestPermissions(MainActivity.this,
                     new String[]{Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.RECORD_AUDIO}, 1234);
@@ -77,16 +68,23 @@ public class MainActivity extends AppCompatActivity {
         mVideoView = findViewById(R.id.videoOriginal);
         mediaController = findViewById(R.id.controller);
         btnStabilize = findViewById(R.id.btnStabilize);
+        ivResult = findViewById(R.id.ivTest);
 
         mediaController = new MediaController(this);
         mediaController.setMediaPlayer(mVideoView);
         mVideoView.setMediaController(mediaController);
-        mVideoView.start();
 
+        mVideoView.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                mVideoView.start();
+            }
+        });
         btnStabilize.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 stabilizeVideo();
+
                 if (isSuccess) {
                     Toast.makeText(MainActivity.this, "Success", Toast.LENGTH_SHORT).show();
                 }
@@ -98,241 +96,243 @@ public class MainActivity extends AppCompatActivity {
 
     private void stabilizeVideo() {
         frameGrabber = new FFmpegFrameGrabber(getResources().openRawResource(R.raw.vietnam));
-        AsyncTask.execute(new Runnable() {
-            @Override
-            public void run() {
-                //TODO your background code
-                try {
-                    frameGrabber.setFormat("avi");
-                    frameGrabber.start();
-                } catch (FrameGrabber.Exception e) {
-                    Log.e("javacv", "Failed to start grabber" + e);
-                }
+        //TODO your background code
+        try {
+            frameGrabber.setFormat("avi");
+            frameGrabber.start();
+        } catch (FrameGrabber.Exception e) {
+            Log.e("javacv", "Failed to start grabber" + e);
+        }
 
-                Frame vFrame = null;
+        Frame vFrame = null;
 
-                try {
-                    frameGrabber.setFrameNumber(1);
-                    vFrame = frameGrabber.grabFrame();
-                    int noFrames = frameGrabber.getLengthInFrames(); // Number of Frames
-                    int filterWindow = 30;
-                    double stD = 30;
+        try {
+            frameGrabber.setFrameNumber(1);
+            vFrame = frameGrabber.grabFrame();
+            Bitmap bmp = Bitmap.createBitmap(vFrame.imageWidth, vFrame.imageHeight, Bitmap.Config.ARGB_8888);
+            Utils.matToBitmap(frameConverter.convertToOrgOpenCvCoreMat(vFrame),bmp);
+            ivResult.setImageBitmap(bmp);
 
-                    Log.i(TAG, "Number of Frames: " + noFrames);
+            /*int noFrames = frameGrabber.getLengthInFrames(); // Number of Frames
+            int filterWindow = 30;
+            double stD = 30;
 
-                    //initialize the first frame
-                    Mat outImagePrev = frameConverter.convert(vFrame).clone();
-                    Mat outImageNext = null;
+            Log.i(TAG, "Number of Frames: " + noFrames);
 
-                    Mat blackOutImagePrev = new Mat(outImagePrev.rows(), CV_8UC1);
-                    Mat blackOutImageNext = new Mat(outImagePrev.size(), CV_8UC1);
+            //initialize the first frame
+            Mat outImagePrev = frameConverter.convert(vFrame).clone();
+            Mat outImageNext = null;
 
-                    Mat prevCorners = new Mat();
-                    Mat nextCorners = new Mat();
-                    Mat status = new Mat();
-                    Mat err = new Mat();
-                    Mat outPutHomography = null;
+            Mat blackOutImagePrev = new Mat(outImagePrev.rows(), CV_8UC1);
+            Mat blackOutImageNext = new Mat(outImagePrev.size(), CV_8UC1);
 
-                    Frame nextFrame = null;
+            Mat prevCorners = new Mat();
+            Mat nextCorners = new Mat();
+            Mat status = new Mat();
+            Mat err = new Mat();
+            Mat outPutHomography = null;
 
-                    //initialize matrix to storee transform values
-                    Mat trajectoryC = new Mat(9, noFrames - 1, CV_64F);
-                    Mat trajectorySmooth = new Mat(trajectoryC.size(), trajectoryC.type());
+            Frame nextFrame = null;
 
-                    //we use the indexers to access the elements in matrices
-                    DoubleIndexer trajectoryCIndexer = trajectoryC.createIndexer(true);
-                    ;
-                    DoubleIndexer trajectorySmoothCIndexer;
+            //initialize matrix to storee transform values
+            Mat trajectoryC = new Mat(9, noFrames - 1, CV_64F);
+            Mat trajectorySmooth = new Mat(trajectoryC.size(), trajectoryC.type());
 
-                    //initialize the array used for cumulating transfoms. e.g Frame4 = H3*H2*H1* Frame1
-                    Mat hMultiplier = Mat.eye(3, 3, CV_64F).asMat();
-                    Mat hSmoothed = Mat.eye(3, 3, CV_64F).asMat();
+            //we use the indexers to access the elements in matrices
+            DoubleIndexer trajectoryCIndexer = trajectoryC.createIndexer(true);
+            ;
+            DoubleIndexer trajectorySmoothCIndexer;
 
-                    //create indexer for the homography matrices
-                    DoubleIndexer hMultiplierIndexer;
-                    DoubleIndexer hSmoothedIndexer;
+            //initialize the array used for cumulating transfoms. e.g Frame4 = H3*H2*H1* Frame1
+            Mat hMultiplier = Mat.eye(3, 3, CV_64F).asMat();
+            Mat hSmoothed = Mat.eye(3, 3, CV_64F).asMat();
 
-                    //create indexer for the detected and tracked points
-                    FloatIndexer nextPointIndex;
-                    FloatIndexer prevPointIndex;
+            //create indexer for the homography matrices
+            DoubleIndexer hMultiplierIndexer;
+            DoubleIndexer hSmoothedIndexer;
 
-                    FloatIndexer nextCleanPointIndex;
-                    FloatIndexer prevCleanPointIndex;
+            //create indexer for the detected and tracked points
+            FloatIndexer nextPointIndex;
+            FloatIndexer prevPointIndex;
 
-
-                    //indexer for status returned by Lukas-Kanade.. status=0, implies tracking was not successfull.. status=1 implies otherwise
-                    UByteIndexer statusIndex;
-
-                    //obtain per frame homography asper matlab
-                    for (int i = 1; i < noFrames; i++) {
-
-                        frameGrabber.setFrameNumber(i + 1);
-                        nextFrame = frameGrabber.grabFrame();
-
-                        //we are working with pairs of frames, move to next if we don't have a next frame
-                        if (frameConverter.convert(nextFrame) == null) continue;
-
-                        outImageNext = frameConverter.convert(nextFrame).clone();
+            FloatIndexer nextCleanPointIndex;
+            FloatIndexer prevCleanPointIndex;
 
 
-                        //convert images.. Feature location and tracking is done on grayscale
-                        cvtColor(outImagePrev, blackOutImagePrev, CV_BGR2GRAY);
-                        cvtColor(outImageNext, blackOutImageNext, CV_BGR2GRAY);
+            //indexer for status returned by Lukas-Kanade.. status=0, implies tracking was not successfull.. status=1 implies otherwise
+            UByteIndexer statusIndex;
 
-                        // LK Feature Tracking
-                        //detect features in frame
-                        goodFeaturesToTrack(blackOutImagePrev, prevCorners, 400, 0.1, 30);
+            //obtain per frame homography asper matlab
+            for (int i = 1; i < noFrames; i++) {
+                frameGrabber.setFrameNumber(i + 1);
+                Log.i(TAG, "Test Frame: " + frameGrabber.getFrameNumber());
+                nextFrame = frameGrabber.grabFrame();
 
-                        //Track in next Frame
-                        calcOpticalFlowPyrLK(blackOutImagePrev, blackOutImageNext, prevCorners, nextCorners, status, err);
+                //we are working with pairs of frames, move to next if we don't have a next frame
+                if (frameConverter.convert(nextFrame) == null) continue;
 
-
-                        statusIndex = status.createIndexer(true);
-                        nextPointIndex = nextCorners.createIndexer(true);
-                        prevPointIndex = prevCorners.createIndexer(true);
-
-                        //delete bad points based on the returned status
-
-                        Mat prevCornersClean = new Mat(prevCorners.size(), prevCorners.type());
-                        Mat nextCornersClean = new Mat(nextCorners.size(), nextCorners.type());
-
-                        nextCleanPointIndex = nextCornersClean.createIndexer(true);
-                        prevCleanPointIndex = prevCornersClean.createIndexer(true);
-
-                        int k = 0;
-                        int j;
-
-                        for (j = 0; j < status.rows(); j++) {
-
-                            if (statusIndex.get(j) != 0) {
-
-                                nextCleanPointIndex.put(k, 0, nextPointIndex.get(j, 0));
-                                nextCleanPointIndex.put(k, 1, nextPointIndex.get(j, 1));
-                                prevCleanPointIndex.put(k, 0, prevPointIndex.get(j, 0));
-                                prevCleanPointIndex.put(k, 1, prevPointIndex.get(j, 1));
-
-                                k++;
-                            }
-
-                        }
-
-                        //delete unused space in the corner matrix
-                        nextCornersClean.pop_back(j - k + 1);
-                        prevCornersClean.pop_back(j - k + 1);
+                outImageNext = frameConverter.convert(nextFrame).clone();
 
 
-                        //find homography
-                        outPutHomography = findHomography(prevCornersClean, nextCornersClean);
+                //convert images.. Feature location and tracking is done on grayscale
+                cvtColor(outImagePrev, blackOutImagePrev, CV_RGB2GRAY);
+                cvtColor(outImageNext, blackOutImageNext, CV_RGB2GRAY);
 
-                        //cumulate Homography H_n, H_n-1, ... , H_2, H_1
-                        gemm(outPutHomography, hMultiplier, 1, hMultiplier, 0, hMultiplier, 0);
+                // LK Feature Tracking
+                //detect features in frame
+                goodFeaturesToTrack(blackOutImagePrev, prevCorners, 400, 0.1, 30);
 
-                        hMultiplierIndexer = hMultiplier.createIndexer(true);
-
-                        hMultiplierIndexer.put(0, 0, hMultiplierIndexer.get(0, 0) / hMultiplierIndexer.get(2, 2)); //0
-                        hMultiplierIndexer.put(0, 1, hMultiplierIndexer.get(0, 1) / hMultiplierIndexer.get(2, 2)); //1
-                        hMultiplierIndexer.put(0, 2, hMultiplierIndexer.get(0, 2) / hMultiplierIndexer.get(2, 2)); //2
-                        hMultiplierIndexer.put(1, 0, hMultiplierIndexer.get(1, 0) / hMultiplierIndexer.get(2, 2)); //3
-                        hMultiplierIndexer.put(1, 1, hMultiplierIndexer.get(1, 1) / hMultiplierIndexer.get(2, 2)); //4
-                        hMultiplierIndexer.put(1, 2, hMultiplierIndexer.get(1, 2) / hMultiplierIndexer.get(2, 2)); //5
-                        hMultiplierIndexer.put(2, 0, hMultiplierIndexer.get(2, 0) / hMultiplierIndexer.get(2, 2)); //6
-                        hMultiplierIndexer.put(2, 1, hMultiplierIndexer.get(2, 1) / hMultiplierIndexer.get(2, 2)); //7
-                        hMultiplierIndexer.put(2, 2, hMultiplierIndexer.get(2, 2) / hMultiplierIndexer.get(2, 2)); //8
+                //Track in next Frame
+                calcOpticalFlowPyrLK(blackOutImagePrev, blackOutImageNext, prevCorners, nextCorners, status, err);
 
 
-                        trajectoryCIndexer.put(0, i - 1, hMultiplierIndexer.get(0, 0)); //0
-                        trajectoryCIndexer.put(1, i - 1, hMultiplierIndexer.get(0, 1)); //1
-                        trajectoryCIndexer.put(2, i - 1, hMultiplierIndexer.get(0, 2)); //2
-                        trajectoryCIndexer.put(3, i - 1, hMultiplierIndexer.get(1, 0)); //3
-                        trajectoryCIndexer.put(4, i - 1, hMultiplierIndexer.get(1, 1)); //4
-                        trajectoryCIndexer.put(5, i - 1, hMultiplierIndexer.get(1, 2)); //5
-                        trajectoryCIndexer.put(6, i - 1, hMultiplierIndexer.get(2, 0)); //6
-                        trajectoryCIndexer.put(7, i - 1, hMultiplierIndexer.get(2, 1)); //7
-                        trajectoryCIndexer.put(8, i - 1, hMultiplierIndexer.get(2, 2)); //8
+                statusIndex = status.createIndexer(true);
+                nextPointIndex = nextCorners.createIndexer(true);
+                prevPointIndex = prevCorners.createIndexer(true);
 
+                //delete bad points based on the returned status
 
-                        outImagePrev.release();
+                Mat prevCornersClean = new Mat(prevCorners.size(), prevCorners.type());
+                Mat nextCornersClean = new Mat(nextCorners.size(), nextCorners.type());
 
-                        outImagePrev = outImageNext.clone();
+                nextCleanPointIndex = nextCornersClean.createIndexer(true);
+                prevCleanPointIndex = prevCornersClean.createIndexer(true);
 
+                int k = 0;
+                int j;
+
+                for (j = 0; j < status.rows(); j++) {
+
+                    if (statusIndex.get(j) != 0) {
+
+                        nextCleanPointIndex.put(k, 0, nextPointIndex.get(j, 0));
+                        nextCleanPointIndex.put(k, 1, nextPointIndex.get(j, 1));
+                        prevCleanPointIndex.put(k, 0, prevPointIndex.get(j, 0));
+                        prevCleanPointIndex.put(k, 1, prevPointIndex.get(j, 1));
+
+                        k++;
                     }
 
-
-                    Mat gaussianKenel = getGaussianKernel(filterWindow, -1);
-                    transpose(gaussianKenel, gaussianKenel);// need vertical
-
-
-                    //Gaussian Smoothening
-                    filter2D(trajectoryC, trajectorySmooth, -1, gaussianKenel);
-                    //Log.d(debugTag, "cols " + gaussianKenel.cols() + "rows: " + gaussianKenel.rows() + "cha: " + gaussianKenel.channels());
-
-
-                    //extract individual homographies for warping...
-
-                    FFmpegFrameRecorder stableVideoRecorder = FFmpegFrameRecorder.createDefault(ffmpeg_link, outImagePrev.cols(), outImagePrev.rows());//again, use your video
-
-                    //start recording frames into the video
-                    stableVideoRecorder.start();
-
-                    trajectorySmoothCIndexer = trajectorySmooth.createIndexer(true);
-                    hMultiplierIndexer = hMultiplier.createIndexer(true);
-                    hSmoothedIndexer = hSmoothed.createIndexer(true);
-
-                    for (int p = 1; p < noFrames; p++) {
-
-                        //obtain the smothed homography
-                        hSmoothedIndexer.put(0, 0, trajectorySmoothCIndexer.get(0, p - 1)); //0
-                        hSmoothedIndexer.put(0, 1, trajectorySmoothCIndexer.get(1, p - 1)); //1
-                        hSmoothedIndexer.put(0, 2, trajectorySmoothCIndexer.get(2, p - 1)); //2
-                        hSmoothedIndexer.put(1, 0, trajectorySmoothCIndexer.get(3, p - 1)); //3
-                        hSmoothedIndexer.put(1, 1, trajectorySmoothCIndexer.get(4, p - 1)); //4
-                        hSmoothedIndexer.put(1, 2, trajectorySmoothCIndexer.get(5, p - 1)); //5
-                        hSmoothedIndexer.put(2, 0, trajectorySmoothCIndexer.get(6, p - 1)); //6
-                        hSmoothedIndexer.put(2, 1, trajectorySmoothCIndexer.get(7, p - 1)); //7
-                        hSmoothedIndexer.put(2, 2, trajectorySmoothCIndexer.get(8, p - 1)); //8
-
-
-                        //obtain previous homography
-                        hMultiplierIndexer.put(0, 0, trajectoryCIndexer.get(0, p - 1)); //0
-                        hMultiplierIndexer.put(0, 1, trajectoryCIndexer.get(1, p - 1)); //1
-                        hMultiplierIndexer.put(0, 2, trajectoryCIndexer.get(2, p - 1)); //2
-                        hMultiplierIndexer.put(1, 0, trajectoryCIndexer.get(3, p - 1)); //3
-                        hMultiplierIndexer.put(1, 1, trajectoryCIndexer.get(4, p - 1)); //4
-                        hMultiplierIndexer.put(1, 2, trajectoryCIndexer.get(5, p - 1)); //5
-                        hMultiplierIndexer.put(2, 0, trajectoryCIndexer.get(6, p - 1)); //6
-                        hMultiplierIndexer.put(2, 1, trajectoryCIndexer.get(7, p - 1)); //7
-                        hMultiplierIndexer.put(2, 2, trajectoryCIndexer.get(8, p - 1)); //8
-
-
-                        //invert the previous
-                        invert(hMultiplier, hMultiplier);
-                        hMultiplierIndexer = hMultiplier.createIndexer(true);
-
-                        //left multiply smoothed with inverse of previous
-                        gemm(hSmoothed, hMultiplier, 1, hMultiplier, 0, hMultiplier, 0);
-
-                        //warp frames and store into video file
-                        frameGrabber.setFrameNumber(p + 1);
-                        nextFrame = frameGrabber.grabFrame();
-
-                        if (frameConverter.convert(nextFrame) == null) continue;
-                        outImageNext = frameConverter.convert(nextFrame).clone();
-
-                        warpPerspective(outImageNext, outImagePrev, hMultiplier, outImagePrev.size()); //out Image previous now contains our warped image
-
-                        //finally write image into Frame
-
-                        stableVideoRecorder.record(frameConverter.convert(outImagePrev));
-                    }
-                    frameGrabber.stop();
-                    stableVideoRecorder.stop();
-
-                } catch (Exception e) {
-                    Log.e("javacv", "video grabFrame failed: " + e);
                 }
+
+                //delete unused space in the corner matrix
+                nextCornersClean.pop_back(j - k + 1);
+                prevCornersClean.pop_back(j - k + 1);
+
+
+                //find homography
+                outPutHomography = findHomography(prevCornersClean, nextCornersClean);
+
+                //cumulate Homography H_n, H_n-1, ... , H_2, H_1
+                gemm(outPutHomography, hMultiplier, 1, hMultiplier, 0, hMultiplier, 0);
+
+                hMultiplierIndexer = hMultiplier.createIndexer(true);
+
+                hMultiplierIndexer.put(0, 0, hMultiplierIndexer.get(0, 0) / hMultiplierIndexer.get(2, 2)); //0
+                hMultiplierIndexer.put(0, 1, hMultiplierIndexer.get(0, 1) / hMultiplierIndexer.get(2, 2)); //1
+                hMultiplierIndexer.put(0, 2, hMultiplierIndexer.get(0, 2) / hMultiplierIndexer.get(2, 2)); //2
+                hMultiplierIndexer.put(1, 0, hMultiplierIndexer.get(1, 0) / hMultiplierIndexer.get(2, 2)); //3
+                hMultiplierIndexer.put(1, 1, hMultiplierIndexer.get(1, 1) / hMultiplierIndexer.get(2, 2)); //4
+                hMultiplierIndexer.put(1, 2, hMultiplierIndexer.get(1, 2) / hMultiplierIndexer.get(2, 2)); //5
+                hMultiplierIndexer.put(2, 0, hMultiplierIndexer.get(2, 0) / hMultiplierIndexer.get(2, 2)); //6
+                hMultiplierIndexer.put(2, 1, hMultiplierIndexer.get(2, 1) / hMultiplierIndexer.get(2, 2)); //7
+                hMultiplierIndexer.put(2, 2, hMultiplierIndexer.get(2, 2) / hMultiplierIndexer.get(2, 2)); //8
+
+
+                trajectoryCIndexer.put(0, i - 1, hMultiplierIndexer.get(0, 0)); //0
+                trajectoryCIndexer.put(1, i - 1, hMultiplierIndexer.get(0, 1)); //1
+                trajectoryCIndexer.put(2, i - 1, hMultiplierIndexer.get(0, 2)); //2
+                trajectoryCIndexer.put(3, i - 1, hMultiplierIndexer.get(1, 0)); //3
+                trajectoryCIndexer.put(4, i - 1, hMultiplierIndexer.get(1, 1)); //4
+                trajectoryCIndexer.put(5, i - 1, hMultiplierIndexer.get(1, 2)); //5
+                trajectoryCIndexer.put(6, i - 1, hMultiplierIndexer.get(2, 0)); //6
+                trajectoryCIndexer.put(7, i - 1, hMultiplierIndexer.get(2, 1)); //7
+                trajectoryCIndexer.put(8, i - 1, hMultiplierIndexer.get(2, 2)); //8
+
+
+                outImagePrev.release();
+
+                outImagePrev = outImageNext.clone();
             }
-        });
+
+            Log.i(TAG, "Obtained frame homography from MatLab");
+
+            Mat gaussianKenel = getGaussianKernel(filterWindow, -1);
+            transpose(gaussianKenel, gaussianKenel);// need vertical
+
+
+            //Gaussian Smoothening
+            filter2D(trajectoryC, trajectorySmooth, -1, gaussianKenel);
+            //Log.d(debugTag, "cols " + gaussianKenel.cols() + "rows: " + gaussianKenel.rows() + "cha: " + gaussianKenel.channels());
+
+
+            //extract individual homographies for warping...
+            Log.i(TAG, "ffmpeg_url: " + ffmpeg_link.getAbsolutePath());
+            stableVideoRecorder = new FFmpegFrameRecorder(ffmpeg_link, outImagePrev.cols(), outImagePrev.rows(), 1);//again, use your video
+
+            //start recording frames into the video
+            stableVideoRecorder.setFormat("mp4");
+            stableVideoRecorder.start();
+            Log.i(TAG, "recorder initialize success");
+
+            trajectorySmoothCIndexer = trajectorySmooth.createIndexer(true);
+            hMultiplierIndexer = hMultiplier.createIndexer(true);
+            hSmoothedIndexer = hSmoothed.createIndexer(true);
+
+            for (int p = 1; p < noFrames; p++) {
+
+                //obtain the smothed homography
+                hSmoothedIndexer.put(0, 0, trajectorySmoothCIndexer.get(0, p - 1)); //0
+                hSmoothedIndexer.put(0, 1, trajectorySmoothCIndexer.get(1, p - 1)); //1
+                hSmoothedIndexer.put(0, 2, trajectorySmoothCIndexer.get(2, p - 1)); //2
+                hSmoothedIndexer.put(1, 0, trajectorySmoothCIndexer.get(3, p - 1)); //3
+                hSmoothedIndexer.put(1, 1, trajectorySmoothCIndexer.get(4, p - 1)); //4
+                hSmoothedIndexer.put(1, 2, trajectorySmoothCIndexer.get(5, p - 1)); //5
+                hSmoothedIndexer.put(2, 0, trajectorySmoothCIndexer.get(6, p - 1)); //6
+                hSmoothedIndexer.put(2, 1, trajectorySmoothCIndexer.get(7, p - 1)); //7
+                hSmoothedIndexer.put(2, 2, trajectorySmoothCIndexer.get(8, p - 1)); //8
+
+
+                //obtain previous homography
+                hMultiplierIndexer.put(0, 0, trajectoryCIndexer.get(0, p - 1)); //0
+                hMultiplierIndexer.put(0, 1, trajectoryCIndexer.get(1, p - 1)); //1
+                hMultiplierIndexer.put(0, 2, trajectoryCIndexer.get(2, p - 1)); //2
+                hMultiplierIndexer.put(1, 0, trajectoryCIndexer.get(3, p - 1)); //3
+                hMultiplierIndexer.put(1, 1, trajectoryCIndexer.get(4, p - 1)); //4
+                hMultiplierIndexer.put(1, 2, trajectoryCIndexer.get(5, p - 1)); //5
+                hMultiplierIndexer.put(2, 0, trajectoryCIndexer.get(6, p - 1)); //6
+                hMultiplierIndexer.put(2, 1, trajectoryCIndexer.get(7, p - 1)); //7
+                hMultiplierIndexer.put(2, 2, trajectoryCIndexer.get(8, p - 1)); //8
+
+
+                //invert the previous
+                invert(hMultiplier, hMultiplier);
+                hMultiplierIndexer = hMultiplier.createIndexer(true);
+
+                //left multiply smoothed with inverse of previous
+                gemm(hSmoothed, hMultiplier, 1, hMultiplier, 0, hMultiplier, 0);
+
+                //warp frames and store into video file
+                frameGrabber.setFrameNumber(p + 1);
+                nextFrame = frameGrabber.grabFrame();
+
+                if (frameConverter.convert(nextFrame) == null) continue;
+                outImageNext = frameConverter.convert(nextFrame).clone();
+
+                warpPerspective(outImageNext, outImagePrev, hMultiplier, outImagePrev.size()); //out Image previous now contains our warped image
+
+                //finally write image into Frame
+
+                stableVideoRecorder.record(frameConverter.convert(outImagePrev));
+            }
+            frameGrabber.stop();
+            stableVideoRecorder.stop();
+*/
+        } catch (Exception e) {
+            Log.e("javacv", "video grabFrame failed: " + e);
+        }
     }
+
 
     private void initializePlayer() {
         Uri videoUri = getMedia(VIDEO_SAMPLE);
@@ -397,4 +397,5 @@ public class MainActivity extends AppCompatActivity {
             return false;
         }
     }
+
 }
