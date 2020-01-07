@@ -27,25 +27,40 @@ import android.widget.VideoView;
 import org.bytedeco.javacpp.indexer.DoubleIndexer;
 import org.bytedeco.javacpp.indexer.FloatIndexer;
 import org.bytedeco.javacpp.indexer.UByteIndexer;
+import org.bytedeco.javacpp.opencv_core;
+import org.bytedeco.javacpp.opencv_videoio;
+import org.bytedeco.javacpp.opencv_core.Mat;
 import org.bytedeco.javacv.FFmpegFrameGrabber;
 import org.bytedeco.javacv.FFmpegFrameRecorder;
 import org.bytedeco.javacv.Frame;
 import org.bytedeco.javacv.FrameConverter;
 import org.bytedeco.javacv.FrameGrabber;
 import org.bytedeco.javacv.OpenCVFrameConverter;
-import org.bytedeco.opencv.opencv_core.Mat;
-import org.opencv.android.Utils;
-import org.opencv.core.CvType;
 
 import java.io.File;
 import java.lang.reflect.Array;
 import java.util.Arrays;
 
+import static org.bytedeco.javacpp.opencv_calib3d.findHomography;
+import static org.bytedeco.javacpp.opencv_core.CV_64F;
+import static org.bytedeco.javacpp.opencv_core.CV_8UC1;
+import static org.bytedeco.javacpp.opencv_core.gemm;
+import static org.bytedeco.javacpp.opencv_core.invert;
+import static org.bytedeco.javacpp.opencv_core.transpose;
+import static org.bytedeco.javacpp.opencv_imgproc.CV_BGR2GRAY;
+import static org.bytedeco.javacpp.opencv_imgproc.CV_RGB2GRAY;
+import static org.bytedeco.javacpp.opencv_imgproc.cvtColor;
+import static org.bytedeco.javacpp.opencv_imgproc.filter2D;
+import static org.bytedeco.javacpp.opencv_imgproc.goodFeaturesToTrack;
+import static org.bytedeco.javacpp.opencv_imgproc.warpPerspective;
+import static org.bytedeco.javacpp.opencv_imgproc.getGaussianKernel;
+import static org.bytedeco.javacpp.opencv_video.calcOpticalFlowPyrLK;
+
 
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = "MainActivity";
-    private static final String VIDEO_SAMPLE = "vietnam";
-    private File ffmpeg_link = new File(Environment.getExternalStorageDirectory(), "stream.mp4");
+    private static final String VIDEO_SAMPLE = "/storage/emulated/0/videos/hippo.mp4";
+    private File ffmpeg_link = new File(Environment.getExternalStorageDirectory(), "stabilized.mp4");
     private VideoView mVideoView;
     private ImageView ivResult;
     private MediaController mediaController;
@@ -92,13 +107,13 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    OpenCVFrameConverter.ToMat frameConverter = new OpenCVFrameConverter.ToMat();
+    OpenCVFrameConverter frameConverter = new OpenCVFrameConverter.ToMat();
 
     private void stabilizeVideo() {
-        frameGrabber = new FFmpegFrameGrabber(getResources().openRawResource(R.raw.vietnam));
+        frameGrabber = new FFmpegFrameGrabber(VIDEO_SAMPLE);
         //TODO your background code
         try {
-            frameGrabber.setFormat("avi");
+            frameGrabber.setFormat("mp4");
             frameGrabber.start();
         } catch (FrameGrabber.Exception e) {
             Log.e("javacv", "Failed to start grabber" + e);
@@ -109,18 +124,18 @@ public class MainActivity extends AppCompatActivity {
         try {
             frameGrabber.setFrameNumber(1);
             vFrame = frameGrabber.grabFrame();
-            Bitmap bmp = Bitmap.createBitmap(vFrame.imageWidth, vFrame.imageHeight, Bitmap.Config.ARGB_8888);
-            Utils.matToBitmap(frameConverter.convertToOrgOpenCvCoreMat(vFrame),bmp);
-            ivResult.setImageBitmap(bmp);
+//            Bitmap bmp = Bitmap.createBitmap(vFrame.imageWidth, vFrame.imageHeight, Bitmap.Config.ARGB_8888);
+//            Utils.matToBitmap(frameConverter.convertToOrgOpenCvCoreMat(vFrame),bmp);
+//            ivResult.setImageBitmap(bmp);
 
-            /*int noFrames = frameGrabber.getLengthInFrames(); // Number of Frames
+            int noFrames = frameGrabber.getLengthInFrames(); // Number of Frames
             int filterWindow = 30;
             double stD = 30;
 
             Log.i(TAG, "Number of Frames: " + noFrames);
 
             //initialize the first frame
-            Mat outImagePrev = frameConverter.convert(vFrame).clone();
+            Mat outImagePrev = frameConverter.convertToMat(vFrame).clone();
             Mat outImageNext = null;
 
             Mat blackOutImagePrev = new Mat(outImagePrev.rows(), CV_8UC1);
@@ -165,13 +180,12 @@ public class MainActivity extends AppCompatActivity {
             //obtain per frame homography asper matlab
             for (int i = 1; i < noFrames; i++) {
                 frameGrabber.setFrameNumber(i + 1);
-                Log.i(TAG, "Test Frame: " + frameGrabber.getFrameNumber());
                 nextFrame = frameGrabber.grabFrame();
-
+                Log.i(TAG, "Obtaining frame homography : " + frameGrabber.getFrameNumber()/ noFrames * 100 + "%");
                 //we are working with pairs of frames, move to next if we don't have a next frame
                 if (frameConverter.convert(nextFrame) == null) continue;
 
-                outImageNext = frameConverter.convert(nextFrame).clone();
+                outImageNext = frameConverter.convertToMat(nextFrame).clone();
 
 
                 //convert images.. Feature location and tracking is done on grayscale
@@ -267,7 +281,6 @@ public class MainActivity extends AppCompatActivity {
 
 
             //extract individual homographies for warping...
-            Log.i(TAG, "ffmpeg_url: " + ffmpeg_link.getAbsolutePath());
             stableVideoRecorder = new FFmpegFrameRecorder(ffmpeg_link, outImagePrev.cols(), outImagePrev.rows(), 1);//again, use your video
 
             //start recording frames into the video
@@ -317,17 +330,20 @@ public class MainActivity extends AppCompatActivity {
                 nextFrame = frameGrabber.grabFrame();
 
                 if (frameConverter.convert(nextFrame) == null) continue;
-                outImageNext = frameConverter.convert(nextFrame).clone();
+                outImageNext = frameConverter.convertToMat(nextFrame).clone();
 
                 warpPerspective(outImageNext, outImagePrev, hMultiplier, outImagePrev.size()); //out Image previous now contains our warped image
 
                 //finally write image into Frame
 
                 stableVideoRecorder.record(frameConverter.convert(outImagePrev));
+                Log.i(TAG, "Writing Video: " + frameGrabber.getFrameNumber() / noFrames * 100 + "%");
             }
             frameGrabber.stop();
             stableVideoRecorder.stop();
-*/
+            Log.i(TAG, "Finished writing video!");
+            Log.i(TAG, "ffmpeg_url: " + ffmpeg_link.getAbsolutePath());
+
         } catch (Exception e) {
             Log.e("javacv", "video grabFrame failed: " + e);
         }
@@ -335,13 +351,9 @@ public class MainActivity extends AppCompatActivity {
 
 
     private void initializePlayer() {
-        Uri videoUri = getMedia(VIDEO_SAMPLE);
-        mVideoView.setVideoURI(videoUri);
-    }
+        Uri videoUri = Uri.parse(VIDEO_SAMPLE);
 
-    private Uri getMedia(String mediaName) {
-        return Uri.parse("android.resource://" + getPackageName() +
-                "/raw/" + mediaName);
+        mVideoView.setVideoURI(videoUri);
     }
 
     private void releasePlayer() {
