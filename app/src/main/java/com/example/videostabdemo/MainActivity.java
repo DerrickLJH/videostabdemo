@@ -59,10 +59,9 @@ import static org.bytedeco.javacpp.opencv_video.calcOpticalFlowPyrLK;
 
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = "MainActivity";
-    private static final String VIDEO_SAMPLE = "/storage/emulated/0/videos/hippo.mp4";
+    private static final String VIDEO_SAMPLE = "/storage/emulated/0/videos/shakycam1.mp4";
     private File ffmpeg_link = new File(Environment.getExternalStorageDirectory(), "stabilized.mp4");
     private VideoView mVideoView;
-    private ImageView ivResult;
     private MediaController mediaController;
     private Button btnStabilize;
     private FrameGrabber frameGrabber;
@@ -83,7 +82,6 @@ public class MainActivity extends AppCompatActivity {
         mVideoView = findViewById(R.id.videoOriginal);
         mediaController = findViewById(R.id.controller);
         btnStabilize = findViewById(R.id.btnStabilize);
-        ivResult = findViewById(R.id.ivTest);
 
         mediaController = new MediaController(this);
         mediaController.setMediaPlayer(mVideoView);
@@ -124,9 +122,6 @@ public class MainActivity extends AppCompatActivity {
         try {
             frameGrabber.setFrameNumber(1);
             vFrame = frameGrabber.grabFrame();
-//            Bitmap bmp = Bitmap.createBitmap(vFrame.imageWidth, vFrame.imageHeight, Bitmap.Config.ARGB_8888);
-//            Utils.matToBitmap(frameConverter.convertToOrgOpenCvCoreMat(vFrame),bmp);
-//            ivResult.setImageBitmap(bmp);
 
             int noFrames = frameGrabber.getLengthInFrames(); // Number of Frames
             int filterWindow = 30;
@@ -181,7 +176,7 @@ public class MainActivity extends AppCompatActivity {
             for (int i = 1; i < noFrames; i++) {
                 frameGrabber.setFrameNumber(i + 1);
                 nextFrame = frameGrabber.grabFrame();
-                Log.i(TAG, "Obtaining frame homography : " + frameGrabber.getFrameNumber()/ noFrames * 100 + "%");
+                Log.i(TAG, "Obtaining frame homography : " + frameGrabber.getFrameNumber() + " out of " + noFrames);
                 //we are working with pairs of frames, move to next if we don't have a next frame
                 if (frameConverter.convert(nextFrame) == null) continue;
 
@@ -269,7 +264,7 @@ public class MainActivity extends AppCompatActivity {
                 outImagePrev = outImageNext.clone();
             }
 
-            Log.i(TAG, "Obtained frame homography from MatLab");
+            Log.i(TAG, "COMPLETE!");
 
             Mat gaussianKenel = getGaussianKernel(filterWindow, -1);
             transpose(gaussianKenel, gaussianKenel);// need vertical
@@ -337,11 +332,11 @@ public class MainActivity extends AppCompatActivity {
                 //finally write image into Frame
 
                 stableVideoRecorder.record(frameConverter.convert(outImagePrev));
-                Log.i(TAG, "Writing Video: " + frameGrabber.getFrameNumber() / noFrames * 100 + "%");
+                Log.i(TAG, "Writing Video : " + frameGrabber.getFrameNumber() + " out of " + noFrames + " frames.");
             }
             frameGrabber.stop();
             stableVideoRecorder.stop();
-            Log.i(TAG, "Finished writing video!");
+            Log.i(TAG, "COMPLETE!");
             Log.i(TAG, "ffmpeg_url: " + ffmpeg_link.getAbsolutePath());
 
         } catch (Exception e) {
