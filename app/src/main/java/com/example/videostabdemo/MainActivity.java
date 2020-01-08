@@ -59,7 +59,7 @@ import static org.bytedeco.javacpp.opencv_video.calcOpticalFlowPyrLK;
 
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = "MainActivity";
-    private static final String VIDEO_SAMPLE = "/storage/emulated/0/videos/shakycam1.mp4";
+    private static final String VIDEO_SAMPLE = "/storage/emulated/0/videos/test2.mp4";
     private File ffmpeg_link = new File(Environment.getExternalStorageDirectory(), "stabilized.mp4");
     private VideoView mVideoView;
     private MediaController mediaController;
@@ -85,6 +85,7 @@ public class MainActivity extends AppCompatActivity {
 
         mediaController = new MediaController(this);
         mediaController.setMediaPlayer(mVideoView);
+        mVideoView.setVideoPath(VIDEO_SAMPLE);
         mVideoView.setMediaController(mediaController);
 
         mVideoView.setOnClickListener(new View.OnClickListener() {
@@ -110,27 +111,28 @@ public class MainActivity extends AppCompatActivity {
     private void stabilizeVideo() {
         frameGrabber = new FFmpegFrameGrabber(VIDEO_SAMPLE);
         //TODO your background code
+        frameGrabber.setFormat("mp4");
         try {
-            frameGrabber.setFormat("mp4");
             frameGrabber.start();
-        } catch (FrameGrabber.Exception e) {
-            Log.e("javacv", "Failed to start grabber" + e);
-        }
-
-        Frame vFrame = null;
-
-        try {
             frameGrabber.setFrameNumber(1);
-            vFrame = frameGrabber.grabFrame();
-
+            Frame vFrame = frameGrabber.grabFrame();
+            Log.i(TAG, "vFrame: " + vFrame.toString());
             int noFrames = frameGrabber.getLengthInFrames(); // Number of Frames
             int filterWindow = 30;
             double stD = 30;
 
-            Log.i(TAG, "Number of Frames: " + noFrames);
+            for (int i = 0; i< noFrames; i++){
+                if(vFrame.keyFrame){
+                    frameGrabber.setFrameNumber(i++);
+                    vFrame = frameGrabber.grabFrame();
+                }
+            }
 
+//            vFrame = frameGrabber.grabFrame();
+            Log.i(TAG, "Frame Number: " + frameGrabber.getFrameNumber() + ", isAudioFrame: " + vFrame.keyFrame);
+            Log.i(TAG, "Number of Frames: " + noFrames);
             //initialize the first frame
-            Mat outImagePrev = frameConverter.convertToMat(vFrame).clone();
+            Mat outImagePrev = frameConverter.convertToMat(vFrame).clone(); // Returns NullPointer as first frame is an audio frame, is a keyFrame.
             Mat outImageNext = null;
 
             Mat blackOutImagePrev = new Mat(outImagePrev.rows(), CV_8UC1);
@@ -345,11 +347,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
 
-    private void initializePlayer() {
+/*    private void initializePlayer() {
         Uri videoUri = Uri.parse(VIDEO_SAMPLE);
 
         mVideoView.setVideoURI(videoUri);
-    }
+    }*/
 
     private void releasePlayer() {
         mVideoView.stopPlayback();
@@ -359,7 +361,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onStart() {
         super.onStart();
 
-        initializePlayer();
+//        initializePlayer();
     }
 
     @Override
