@@ -40,10 +40,10 @@
         android:id="@+id/loadingScreen"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="#E6000000"
+        android:background="#CC000000"
         android:elevation="5dp"
         android:gravity="center"
-        android:clickable="false"
+        android:clickable="true"
         android:orientation="vertical"
         android:visibility="gone">
 

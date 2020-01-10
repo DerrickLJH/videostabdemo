@@ -62,7 +62,8 @@ import static org.bytedeco.javacpp.opencv_video.calcOpticalFlowPyrLK;
 
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = "MainActivity";
-    private static final String VIDEO_SAMPLE = "/storage/emulated/0/videos/sample1.mp4";
+    private static final String VIDEO_SAMPLE = "/storage/emulated/0/videos/hippo.mp4";
+    private static final int HORIZONTAL_BORDER_CROP = 20;
     private File ffmpeg_link = new File(Environment.getExternalStorageDirectory(), "stabilized.mp4");
     private VideoView mVideoView;
     private TextView tvStatus;
@@ -96,21 +97,14 @@ public class MainActivity extends AppCompatActivity {
         mVideoView.setVideoPath(VIDEO_SAMPLE);
         mVideoView.setMediaController(mediaController);
 
-        mVideoView.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                mVideoView.start();
-            }
-        });
+
+        mVideoView.start();
+
         btnStabilize.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 linlay.setVisibility(View.VISIBLE);
                 stabilizeVideo();
-
-                if (isSuccess) {
-                    Toast.makeText(MainActivity.this, "Success", Toast.LENGTH_SHORT).show();
-                }
             }
         });
     }
@@ -123,8 +117,7 @@ public class MainActivity extends AppCompatActivity {
             public void run() {
                 frameGrabber = new FFmpegFrameGrabber(VIDEO_SAMPLE);
                 //TODO your background code
-                frameGrabber.setFormat("mp4");
-
+                frameGrabber.setFormat("mp4"); // only works on video without audio frames.
                 try {
                     int frameNumber = 1;
                     frameGrabber.start();
@@ -136,10 +129,16 @@ public class MainActivity extends AppCompatActivity {
                     double stD = 30;
 
                     if (vFrame.audioChannels != 0 && vFrame.keyFrame) {
-                        do {
-                            frameGrabber.setFrameNumber(frameNumber++);
-                        } while (vFrame.audioChannels != 0 && vFrame.keyFrame);
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                linlay.setVisibility(View.GONE);
+                                Toast.makeText(MainActivity.this, "Unable to stabilize. Please use a muted video.", Toast.LENGTH_SHORT).show();
+                            }
+                        });
+                        return;
                     }
+
                     /*
             for (int i = 0; i< noFrames; i++){
                 if(vFrame.image == null || vFrame.keyFrame){
@@ -148,9 +147,7 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
 */
-            vFrame = frameGrabber.grabFrame();
-
-//            Log.i(TAG, "Frame Number: " + frameGrabber.getFrameNumber() + ", isAudioFrame: " + vFrame.keyFrame);
+                    Log.i(TAG, "Frame Number: " + frameGrabber.getFrameNumber() + ", isAudioFrame: " + vFrame.keyFrame);
                     Log.i(TAG, "Number of Frames: " + noFrames);
                     //initialize the first frame
                     Mat outImagePrev = frameConverter.convertToMat(vFrame).clone(); // Returns NullPointer as first frame is an audio frame, is a keyFrame.
@@ -357,6 +354,7 @@ public class MainActivity extends AppCompatActivity {
                         if (frameConverter.convert(nextFrame) == null) continue;
                         outImageNext = frameConverter.convertToMat(nextFrame).clone();
 
+                        int vert_border = HORIZONTAL_BORDER_CROP * outImageNext.rows() / outImageNext.cols();
                         warpPerspective(outImageNext, outImagePrev, hMultiplier, outImagePrev.size()); //out Image previous now contains our warped image
 
                         //finally write image into Frame
@@ -382,8 +380,9 @@ public class MainActivity extends AppCompatActivity {
                                 @Override
                                 public void run() {
                                     linlay.setVisibility(View.GONE);
+                                    Toast.makeText(MainActivity.this, "Saved to :" + ffmpeg_link.getAbsolutePath(), Toast.LENGTH_SHORT).show();
                                 }
-                            }, 100);
+                            }, 2000);
                         }
                     });
                     Log.i(TAG, "COMPLETE!");
@@ -394,6 +393,7 @@ public class MainActivity extends AppCompatActivity {
                     Log.e("javacv", "video grabFrame failed: " + e);
                     isSuccess = false;
                 }
+
             }
         });
     }
