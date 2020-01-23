@@ -45,6 +45,7 @@ import java.lang.reflect.Array;
 import java.util.Arrays;
 
 import static org.bytedeco.javacpp.opencv_calib3d.findHomography;
+import static org.bytedeco.javacpp.opencv_core.*;
 import static org.bytedeco.javacpp.opencv_core.CV_64F;
 import static org.bytedeco.javacpp.opencv_core.CV_8UC1;
 import static org.bytedeco.javacpp.opencv_core.gemm;
@@ -62,7 +63,7 @@ import static org.bytedeco.javacpp.opencv_video.calcOpticalFlowPyrLK;
 
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = "MainActivity";
-    private static final String VIDEO_SAMPLE = "/storage/emulated/0/videos/hippo.mp4";
+    private static final String VIDEO_SAMPLE = "/storage/emulated/0/hippo.mp4";
     private static final int HORIZONTAL_BORDER_CROP = 20;
     private File ffmpeg_link = new File(Environment.getExternalStorageDirectory(), "stabilized.mp4");
     private VideoView mVideoView;
@@ -74,6 +75,7 @@ public class MainActivity extends AppCompatActivity {
     private FrameGrabber frameGrabber;
     private FFmpegFrameRecorder stableVideoRecorder;
     private boolean isSuccess = false;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -316,7 +318,7 @@ public class MainActivity extends AppCompatActivity {
 
                     for (int p = frameNumber; p < noFrames; p++) {
 
-                        //obtain the smothed homography
+                        //obtain the smoothed homography
                         hSmoothedIndexer.put(0, 0, trajectorySmoothCIndexer.get(0, p - 1)); //0
                         hSmoothedIndexer.put(0, 1, trajectorySmoothCIndexer.get(1, p - 1)); //1
                         hSmoothedIndexer.put(0, 2, trajectorySmoothCIndexer.get(2, p - 1)); //2
@@ -355,11 +357,13 @@ public class MainActivity extends AppCompatActivity {
                         outImageNext = frameConverter.convertToMat(nextFrame).clone();
 
                         int vert_border = HORIZONTAL_BORDER_CROP * outImageNext.rows() / outImageNext.cols();
+                        Log.i(TAG,"vert border: " + vert_border);
                         warpPerspective(outImageNext, outImagePrev, hMultiplier, outImagePrev.size()); //out Image previous now contains our warped image
 
                         //finally write image into Frame
-
-                        stableVideoRecorder.record(frameConverter.convert(outImagePrev));
+                        Rect roi = new Rect(0,0,outImagePrev.cols() - vert_border, outImagePrev.rows() - vert_border);
+                        Mat cropped = new Mat(outImagePrev, roi);
+                        stableVideoRecorder.record(frameConverter.convert(cropped));
                         runOnUiThread(new Runnable() {
 
                             @Override
