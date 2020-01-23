@@ -11,7 +11,7 @@ Take hippo.mp4 from the project folder
 
 ### Prerequisites
 
-This project requires Android Studio and a mobile phone to be able to run, running on emulator does not work as it only runs on environment android-arm & android-arm64.
+This project requires Android Studio and a mobile phone to be able to run, running on emulator(x86) does not work as it only runs on environment android-arm & android-arm64.
 
 ### Dependencies needed
 
