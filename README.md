@@ -1,6 +1,6 @@
 # Post Video Stabilization
 
-This is a demo project that uses JavaCV Library that allows users to stabilize video.
+This is a demo project that allows users to stabilize video using JavaCV Library.
 
 ## Getting Started
 
